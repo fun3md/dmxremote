@@ -2,6 +2,11 @@
 #include "SSD1306Wire.h" 
 #include "OLEDDisplayUi.h"
 
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
+
+#define TRIGGER_PIN 0
+
+
 #define WiFi_Logo_width 60
 #define WiFi_Logo_height 36
 const uint8_t WiFi_Logo_bits[] PROGMEM = {
@@ -41,6 +46,13 @@ const uint8_t WiFi_Logo_bits[] PROGMEM = {
 // #include <Artnet.h>
 
 // WiFi stuff
+// wifimanager can run in a blocking mode or a non blocking mode
+// Be sure to know how to process loops with no delay() if using non blocking
+bool wm_nonblocking = false; // change to true to use non blocking
+
+WiFiManager wm; // global wm instance
+WiFiManagerParameter custom_field; // global param ( for non blocking w params )
+
 const char* ssid = "honeypot_2.4ghz";
 const char* pwd = "fun3wlanVDSLmd";
 const IPAddress ip(192, 168, 111, 201);
@@ -59,21 +71,27 @@ uint8_t value = 0;
 SSD1306Wire  display(0x3c, SDA, SCL);
 OLEDDisplayUi ui     ( &display );
 
+/*
+
+
+
+
+*/
 
 
 //Buttons
-#define BUTTON_PIN_D3 14
-#define BUTTON_PIN_D8 12
-#define BUTTON_PIN_D7 13
-#define BUTTON_PIN_D6 9
-#define BUTTON_PIN_SCL 15
+#define BUTTON_PIN_1 2 
+#define BUTTON_PIN_2 3
+#define BUTTON_PIN_3 13
+#define BUTTON_PIN_4 12 //12
+#define BUTTON_PIN_5 9
 
 
-Button2 button_d3;
-Button2 button_d8;
-Button2 button_d7;
-Button2 button_d6;
-Button2 button_scl;
+Button2 button_1;
+Button2 button_2;
+Button2 button_3;
+Button2 button_4;
+Button2 button_5;
 
 char *btn_names[]={"none", "blue", "white", "green"};
 int btn_last=0;
@@ -92,22 +110,22 @@ void handleTap(Button2& btn) {
     // check for really long clicks
     ButtonData r;
     memset(data, 0, size);
-    if (btn == button_d3) {
-      Serial.println("BLUE clicked");
+    if (btn == button_1) {
+      Serial.println("1 clicked");
       memset(data, 50, size);
-    } else if (btn == button_d8) {
-      Serial.println("White clicked");
+    } else if (btn == button_2) {
+      Serial.println("2 clicked");
       btn_last=2;
       memset(data, 255, size);
-    } else if (btn == button_d7) {
-      Serial.println("GREEN clicked");
+    } else if (btn == button_3) {
+      Serial.println("3 clicked");
       btn_last=3;
       memset(data, 100, size);
-    } else if (btn == button_d6) {
-      Serial.println("RED clicked");
+    } else if (btn == button_4) {
+      Serial.println("4 clicked");
       memset(data, 150, size);
-    } else if (btn == button_scl) {
-      Serial.println("Yellow clicked");
+    } else if (btn == button_5) {
+      Serial.println("5 clicked");
       memset(data, 200, size);
     }
 
@@ -134,6 +152,7 @@ int frameCount = 1;
 
 void setup() {
     Serial.begin(115200);
+    Serial.setDebugOutput(true);  
     ui.setTargetFPS(10);
     ui.setIndicatorPosition(BOTTOM);
 
@@ -148,19 +167,64 @@ void setup() {
     display.display();
 
     // WiFi stuff
-    WiFi.begin(ssid, pwd);
-    WiFi.config(ip, gateway, subnet);
-    while (WiFi.status() != WL_CONNECTED) {
-        Serial.print(".");
-        delay(500);
-    }
-    Serial.print("WiFi connected, IP = ");
+    WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP  
+    pinMode(TRIGGER_PIN, INPUT);
+    
+    // wm.resetSettings(); // wipe settings
 
-    display.clear();
-    display.setTextAlignment(TEXT_ALIGN_CENTER);
-    display.drawString(64, 15, "WiFi connected");
-    display.display();
-    delay(500);
+    if(wm_nonblocking) wm.setConfigPortalBlocking(false);
+
+    // add a custom input field
+    int customFieldLength = 40;
+
+    // new (&custom_field) WiFiManagerParameter("customfieldid", "Custom Field Label", "Custom Field Value", customFieldLength,"placeholder=\"Custom Field Placeholder\"");
+    
+    // test custom html input type(checkbox)
+    // new (&custom_field) WiFiManagerParameter("customfieldid", "Custom Field Label", "Custom Field Value", customFieldLength,"placeholder=\"Custom Field Placeholder\" type=\"checkbox\""); // custom html type
+    
+    // test custom html(radio)
+    const char* custom_radio_str = "<br/><label for='customfieldid'>Custom Field Label</label><input type='radio' name='customfieldid' value='1' checked> One<br><input type='radio' name='customfieldid' value='2'> Two<br><input type='radio' name='customfieldid' value='3'> Three";
+    new (&custom_field) WiFiManagerParameter(custom_radio_str); // custom html input
+    
+    wm.addParameter(&custom_field);
+    wm.setSaveParamsCallback(saveParamCallback);
+
+    // custom menu via array or vector
+    // 
+    // menu tokens, "wifi","wifinoscan","info","param","close","sep","erase","restart","exit" (sep is seperator) (if param is in menu, params will not show up in wifi page!)
+    // const char* menu[] = {"wifi","info","param","sep","restart","exit"}; 
+    // wm.setMenu(menu,6);
+    std::vector<const char *> menu = {"wifi","info","param","sep","restart","exit"};
+    wm.setMenu(menu);
+
+    // set dark theme
+    wm.setClass("invert");
+
+    //set static ip
+    // wm.setSTAStaticIPConfig(IPAddress(10,0,1,99), IPAddress(10,0,1,1), IPAddress(255,255,255,0)); // set static ip,gw,sn
+    wm.setShowStaticFields(true); // force show static ip fields
+    wm.setConfigPortalTimeout(120); // auto close configportal after n seconds
+    bool res;
+    res = wm.autoConnect("AutoConnectAP","password"); // password protected ap
+
+    if(!res) {
+      Serial.println("Failed to connect or hit timeout");
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.drawString(64, 15, "Failed to connect or hit timeout");
+      display.display();
+      delay(1000);
+      // ESP.restart();
+    } 
+    else {
+      //if you get here you have connected to the WiFi    
+      Serial.println("connected...yeey :)");
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.drawString(64, 15, "connected...yeey :)");
+      display.display();
+      delay(1000);
+    }
 
     Serial.println(WiFi.localIP());
 
@@ -204,26 +268,87 @@ void setup() {
         Serial.println(")");
     });
 
-    button_d3.begin(BUTTON_PIN_D3);
-    button_d3.setTapHandler(handleTap);
-    button_d8.begin(BUTTON_PIN_D8);
-    button_d8.setTapHandler(handleTap);
-    button_d7.begin(BUTTON_PIN_D7);
-    button_d7.setTapHandler(handleTap);
-    button_d6.begin(BUTTON_PIN_D6);
-    button_d6.setTapHandler(handleTap);
-    button_scl.begin(BUTTON_PIN_SCL);
-    button_scl.setTapHandler(handleTap);
+    button_1.begin(BUTTON_PIN_1);
+    button_1.setTapHandler(handleTap);
+    button_2.begin(BUTTON_PIN_2);
+    button_2.setTapHandler(handleTap);
+    button_3.begin(BUTTON_PIN_3);
+    button_3.setTapHandler(handleTap);
+    button_4.begin(BUTTON_PIN_4);
+    button_4.setTapHandler(handleTap);
+    button_5.begin(BUTTON_PIN_5);
+    button_5.setTapHandler(handleTap);
+}
+
+void checkButton(){
+  // check for button press
+  if ( digitalRead(TRIGGER_PIN) == LOW ) {
+    // poor mans debounce/press-hold, code not ideal for production
+    delay(50);
+    if( digitalRead(TRIGGER_PIN) == LOW ){
+      Serial.println("Button Pressed");
+      // still holding button for 3000 ms, reset settings, code not ideaa for production
+      delay(3000); // reset delay hold
+      if( digitalRead(TRIGGER_PIN) == LOW ){
+        Serial.println("Button Held");
+        Serial.println("Erasing Config, restarting");
+        wm.resetSettings();
+        ESP.restart();
+      }
+      
+      // start portal w delay
+      Serial.println("Starting config portal");
+      display.clear();
+      display.setTextAlignment(TEXT_ALIGN_CENTER);
+      display.drawString(64, 15, "Starting config portal");
+      display.display();
+      delay(1000);
+      wm.setConfigPortalTimeout(120);
+      
+      if (!wm.startConfigPortal("OnDemandAP","password")) {
+        Serial.println("failed to connect or hit timeout");
+        display.clear();
+        display.setTextAlignment(TEXT_ALIGN_CENTER);
+        display.drawString(64, 15, "failed to connect or hit timeout");
+        display.display();
+        delay(3000);
+        // ESP.restart();
+      } else {
+        //if you get here you have connected to the WiFi
+        Serial.println("connected...yeey :)");
+        display.clear();
+        display.setTextAlignment(TEXT_ALIGN_CENTER);
+        display.drawString(64, 15, "connected...yeey :)");
+        display.display();
+      }
+    }
+  }
+}
+
+String getParam(String name){
+  //read parameter from server, for customhmtl input
+  String value;
+  if(wm.server->hasArg(name)) {
+    value = wm.server->arg(name);
+  }
+  return value;
+}
+
+void saveParamCallback(){
+  Serial.println("[CALLBACK] saveParamCallback fired");
+  Serial.println("PARAM customfieldid = " + getParam("customfieldid"));
 }
 
 void loop() {
+    if(wm_nonblocking) wm.process(); // avoid delays() in loop when non-blocking and other long running code  
+    checkButton();
     int remainingTimeBudget = ui.update();
     artnet.parse();  // check if artnet packet has come and execute callback
-    button_d3.loop();
-    button_d8.loop();
-    button_d7.loop();
-    button_d6.loop();
-    button_scl.loop();
+    button_1.loop();
+    button_2.loop();
+    button_3.loop();
+    button_4.loop();
+    button_5.loop();
     //value = (millis() / 4) % 256;
     //memset(data, value, size);
 
