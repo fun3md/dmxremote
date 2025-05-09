@@ -1,11 +1,15 @@
 #include "Button2.h"
-#include "SSD1306Wire.h" 
+#include "SSD1306Wire.h"
 #include "OLEDDisplayUi.h"
+#include <AsyncDelay.h>
 
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 
 #define TRIGGER_PIN 0
 
+// OTA Includes
+#include <ESP8266mDNS.h>
+#include <ArduinoOTA.h>
 
 #define WiFi_Logo_width 60
 #define WiFi_Logo_height 36
@@ -72,16 +76,22 @@ SSD1306Wire  display(0x3c, SDA, SCL);
 OLEDDisplayUi ui     ( &display );
 
 /*
-
-
-
+D3 = configportal
+D2 = SDA
+D1 = SCL
+D5
+D6 = 12
+RX = 3
+TX = 1
+CLK = 6
+SD0 = 
 
 */
 
 
 //Buttons
 #define BUTTON_PIN_1 2 
-#define BUTTON_PIN_2 3
+#define BUTTON_PIN_2 14
 #define BUTTON_PIN_3 13
 #define BUTTON_PIN_4 12 //12
 #define BUTTON_PIN_5 9
@@ -92,6 +102,8 @@ Button2 button_2;
 Button2 button_3;
 Button2 button_4;
 Button2 button_5;
+
+AsyncDelay delay_10s;
 
 char *btn_names[]={"none", "blue", "white", "green"};
 int btn_last=0;
@@ -107,48 +119,84 @@ struct ButtonData
     };
 
 void handleTap(Button2& btn) {
+    display.displayOn();
     // check for really long clicks
     ButtonData r;
-    memset(data, 0, size);
     if (btn == button_1) {
       Serial.println("1 clicked");
-      memset(data, 50, size);
+      data[0] = 255;
     } else if (btn == button_2) {
       Serial.println("2 clicked");
       btn_last=2;
-      memset(data, 255, size);
+      data[1] = 255;
     } else if (btn == button_3) {
       Serial.println("3 clicked");
       btn_last=3;
-      memset(data, 100, size);
+      data[2] = 255;
     } else if (btn == button_4) {
       Serial.println("4 clicked");
-      memset(data, 150, size);
+      data[3] = 255;
     } else if (btn == button_5) {
       Serial.println("5 clicked");
-      memset(data, 200, size);
+      data[4] = 255;
     }
 
     
     artnet.setArtDmxData(data, size);
     artnet.streamArtDmxTo(target_ip, universe);
+    delay_10s.restart();
+}
+
+void handleRelease(Button2& btn) {
+    display.displayOn();
+    // check for really long clicks
+    ButtonData r;
+    if (btn == button_1) {
+      Serial.println("1 released");
+      data[0] = 0;
+    } else if (btn == button_2) {
+      Serial.println("2 released");
+      btn_last=2;
+      data[1] = 0;
+    } else if (btn == button_3) {
+      Serial.println("3 released");
+      btn_last=3;
+      data[2] = 0;
+    } else if (btn == button_4) {
+      Serial.println("4 released");
+      data[3] = 0;
+    } else if (btn == button_5) {
+      Serial.println("5 released");
+      data[4] = 0;
+    }    
+    artnet.setArtDmxData(data, size);
+    artnet.streamArtDmxTo(target_ip, universe);
+    delay_10s.restart();
+}
+
+void msOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
+  display->setTextAlignment(TEXT_ALIGN_RIGHT);
+  display->setFont(ArialMT_Plain_10);
+  display->drawString(128, 0, "S: " + wm.getWLStatusString() + "Q: " + String(wm.getRSSIasQuality(WiFi.RSSI())));
 }
 
 void drawFrame3(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   // Text alignment demo
-  display->setFont(ArialMT_Plain_24);
+  display->setFont(ArialMT_Plain_16);
 
   // The coordinates define the left starting point of the text
   display->setTextAlignment(TEXT_ALIGN_LEFT);
-  display->drawString(0 + x, 11 + y, "Btn: "+String(btn_names[btn_last]));
+  display->drawString(0 + x, 11 + y, String(data[0]) + " " +String(data[1]) + " " +String(data[2]) + " " +String(data[3]) + " " +String(data[4]));
 }
 
 // This array keeps function pointers to all frames
 // frames are the single views that slide in
 FrameCallback frames[] = { drawFrame3 };
-
 // how many frames are there?
 int frameCount = 1;
+
+OverlayCallback overlays[] = { msOverlay };
+int overlaysCount = 1;
 
 void setup() {
     Serial.begin(115200);
@@ -161,6 +209,7 @@ void setup() {
     ui.setFrameAnimation(SLIDE_LEFT);
     ui.disableAutoTransition();
     ui.setFrames(frames, frameCount);
+    ui.setOverlays(overlays, overlaysCount);
     ui.init();
     display.flipScreenVertically();
     display.drawXbm(0 + 34, 0 + 14, WiFi_Logo_width, WiFi_Logo_height, WiFi_Logo_bits);
@@ -185,8 +234,22 @@ void setup() {
     // test custom html(radio)
     const char* custom_radio_str = "<br/><label for='customfieldid'>Custom Field Label</label><input type='radio' name='customfieldid' value='1' checked> One<br><input type='radio' name='customfieldid' value='2'> Two<br><input type='radio' name='customfieldid' value='3'> Three";
     new (&custom_field) WiFiManagerParameter(custom_radio_str); // custom html input
+
+    WiFiManagerParameter custom_artnet_target("artnet_ip", "Artnet Target", "", 15);
+    WiFiManagerParameter custom_artnet_uni("artnet_uni", "Universe", "", 6);
+    WiFiManagerParameter custom_btn1("btn1", "btn1 addr", "", 6);
+    WiFiManagerParameter custom_btn2("btn2", "btn2 addr", "", 6);
+    WiFiManagerParameter custom_btn3("btn3", "btn3 addr", "", 6);
+    WiFiManagerParameter custom_btn4("btn4", "btn4 addr", "", 6);
+
     
     wm.addParameter(&custom_field);
+    wm.addParameter(&custom_artnet_target);
+    wm.addParameter(&custom_artnet_uni);
+    wm.addParameter(&custom_btn1);
+    wm.addParameter(&custom_btn2);
+    wm.addParameter(&custom_btn3);
+    wm.addParameter(&custom_btn4);
     wm.setSaveParamsCallback(saveParamCallback);
 
     // custom menu via array or vector
@@ -227,6 +290,32 @@ void setup() {
     }
 
     Serial.println(WiFi.localIP());
+    ArduinoOTA.setPassword("geheimesPasswort");
+    ArduinoOTA.begin();  
+    ArduinoOTA.onStart([]() {
+      display.displayOn();
+      display.clear();
+      display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
+      display.drawString(display.getWidth()/2, display.getHeight()/2 - 10, "OTA Update");
+      display.display();
+    });
+
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+      display.displayOn();
+      display.drawProgressBar(4, 32, 120, 8, progress / (total / 100) );
+      display.display();
+    });
+
+    ArduinoOTA.onEnd([]() {
+      display.displayOn();
+      display.clear();
+      display.setFont(ArialMT_Plain_10);
+      display.setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
+      display.drawString(display.getWidth()/2, display.getHeight()/2, "Restart");
+      display.display();
+    });
+
 
     artnet.begin();
     //button.setDebounceTime(100);
@@ -269,15 +358,23 @@ void setup() {
     });
 
     button_1.begin(BUTTON_PIN_1);
-    button_1.setTapHandler(handleTap);
+    button_1.setPressedHandler(handleTap);
+    button_1.setReleasedHandler(handleRelease);
     button_2.begin(BUTTON_PIN_2);
-    button_2.setTapHandler(handleTap);
+    button_2.setPressedHandler(handleTap);
+    button_2.setReleasedHandler(handleRelease);
     button_3.begin(BUTTON_PIN_3);
-    button_3.setTapHandler(handleTap);
+    button_3.setPressedHandler(handleTap);
+    button_3.setReleasedHandler(handleRelease);
     button_4.begin(BUTTON_PIN_4);
-    button_4.setTapHandler(handleTap);
+    button_4.setPressedHandler(handleTap);
+    button_4.setReleasedHandler(handleRelease);
     button_5.begin(BUTTON_PIN_5);
-    button_5.setTapHandler(handleTap);
+    button_5.setPressedHandler(handleTap);
+    button_5.setReleasedHandler(handleRelease);
+
+    wifi_set_sleep_type(LIGHT_SLEEP_T);
+    delay_10s.start(3000, AsyncDelay::MILLIS);
 }
 
 void checkButton(){
@@ -298,6 +395,7 @@ void checkButton(){
       
       // start portal w delay
       Serial.println("Starting config portal");
+      display.displayOn();
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.drawString(64, 15, "Starting config portal");
@@ -341,6 +439,7 @@ void saveParamCallback(){
 
 void loop() {
     if(wm_nonblocking) wm.process(); // avoid delays() in loop when non-blocking and other long running code  
+    ArduinoOTA.handle();
     checkButton();
     int remainingTimeBudget = ui.update();
     artnet.parse();  // check if artnet packet has come and execute callback
@@ -351,6 +450,11 @@ void loop() {
     button_5.loop();
     //value = (millis() / 4) % 256;
     //memset(data, value, size);
+
+    if(delay_10s.isExpired())
+    {
+      display.displayOff();
+    }
 
     artnet.setArtDmxData(data, size);
     artnet.streamArtDmxTo(target_ip, universe);  // automatically send set data in 40fps
