@@ -107,6 +107,8 @@ AsyncDelay delay_10s;
 
 char *btn_names[]={"none", "blue", "white", "green"};
 int btn_last=0;
+int a0value = 0;
+float voltage = 0;
 
 struct ButtonData
     {
@@ -175,18 +177,23 @@ void handleRelease(Button2& btn) {
 }
 
 void msOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
+  a0value = analogRead(A0);
+  voltage = a0value * 5.0/1023;
   display->setTextAlignment(TEXT_ALIGN_RIGHT);
   display->setFont(ArialMT_Plain_10);
-  display->drawString(128, 0, "S: " + wm.getWLStatusString() + "Q: " + String(wm.getRSSIasQuality(WiFi.RSSI())));
+  display->drawString(128, 0, "Q: " + String(wm.getRSSIasQuality(WiFi.RSSI())) + " / Bat: " + String(voltage) + "V / A0: " + String(a0value));
 }
 
 void drawFrame3(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   // Text alignment demo
-  display->setFont(ArialMT_Plain_16);
+  display->setFont(ArialMT_Plain_10);
 
   // The coordinates define the left starting point of the text
   display->setTextAlignment(TEXT_ALIGN_LEFT);
-  display->drawString(0 + x, 11 + y, String(data[0]) + " " +String(data[1]) + " " +String(data[2]) + " " +String(data[3]) + " " +String(data[4]));
+  display->drawString(0 + x, 11 + y, "Btn1: " + String(data[0]) + " / Btn2: " + String(data[1]));
+  display->drawString(0 + x, 22 + y, "Btn3: " + String(data[2]) + " / Btn4: " + String(data[3]));
+  display->drawString(0 + x, 33 + y, "Btn5: " + String(data[4]) + " / BtnX: " + String(data[5]));
+
 }
 
 // This array keeps function pointers to all frames
@@ -374,7 +381,7 @@ void setup() {
     button_5.setReleasedHandler(handleRelease);
 
     wifi_set_sleep_type(LIGHT_SLEEP_T);
-    delay_10s.start(3000, AsyncDelay::MILLIS);
+    delay_10s.start(10000, AsyncDelay::MILLIS);
 }
 
 void checkButton(){
