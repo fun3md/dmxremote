@@ -69,19 +69,19 @@ WiFiManager wm; // global wm instance
 WiFiManagerParameter custom_field; // global param ( for non blocking w params )
 
 const char* ssid = "honeypot_2.4ghz";
-const char* pwd = "fun3wlanVDSLmd";
-const IPAddress ip(10, 0, 0, 99);
+const char* pwd = "password";
+const IPAddress ip(10, 0, 0, 100); //increment by one for each ESP
 const IPAddress gateway(10, 0, 0, 99);
 const IPAddress subnet(255, 0, 0, 0);
 
 //ArtnetWiFi artnet;
-const String target_ip = "10.0.0.80";
+const String target_ip = "10.0.0.80"; //needs to be .80
 uint8_t universe = 1;  // 0 - 15
 
 //sACN
 uint8_t mac[6]; // for use with generator
 uint8_t cid[16];
-IPAddress ipUnicast(10, 0, 0, 80);
+IPAddress ipUnicast(10, 0, 0, 80); //needs to be .80
 WiFiUDP sacn1;
 Source sender(sacn1);
 
