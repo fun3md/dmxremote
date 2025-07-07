@@ -1,16 +1,23 @@
+//#define OLED
+
 #include "Button2.h"
+#include <AsyncDelay.h>
+
+#if defined(OLED)
 #include "SSD1306Wire.h"
 #include "OLEDDisplayUi.h"
-#include <AsyncDelay.h>
+#endif // OLED
 
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 
 #define TRIGGER_PIN 0
 
+
 // OTA Includes
 #include <ESP8266mDNS.h>
 #include <ArduinoOTA.h>
 
+#ifdef OLED
 #define WiFi_Logo_width 60
 #define WiFi_Logo_height 36
 const uint8_t WiFi_Logo_bits[] PROGMEM = {
@@ -39,6 +46,7 @@ const uint8_t WiFi_Logo_bits[] PROGMEM = {
   0x00, 0x00, 0x80, 0xFF, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   };
+  #endif
 
 
 
@@ -46,6 +54,9 @@ const uint8_t WiFi_Logo_bits[] PROGMEM = {
 // Please include ArtnetWiFi.h to use Artnet on the platform
 // which can use both WiFi and Ethernet
 #include <ArtnetWiFi.h>
+
+#include "sACN.h"
+#include "IDTools.h"
 // this is also valid for other platforms which can use only WiFi
 // #include <Artnet.h>
 
@@ -59,21 +70,31 @@ WiFiManagerParameter custom_field; // global param ( for non blocking w params )
 
 const char* ssid = "honeypot_2.4ghz";
 const char* pwd = "fun3wlanVDSLmd";
-const IPAddress ip(192, 168, 111, 201);
-const IPAddress gateway(192, 168, 111, 254);
-const IPAddress subnet(255, 255, 255, 0);
+const IPAddress ip(10, 0, 0, 99);
+const IPAddress gateway(10, 0, 0, 99);
+const IPAddress subnet(255, 0, 0, 0);
 
-ArtnetWiFi artnet;
-const String target_ip = "192.168.111.80";
+//ArtnetWiFi artnet;
+const String target_ip = "10.0.0.80";
 uint8_t universe = 1;  // 0 - 15
+
+//sACN
+uint8_t mac[6]; // for use with generator
+uint8_t cid[16];
+IPAddress ipUnicast(10, 0, 0, 80);
+WiFiUDP sacn1;
+Source sender(sacn1);
 
 const uint16_t size = 512;
 uint8_t data[size];
 uint8_t value = 0;
 
+#ifdef OLED
 //OLED
 SSD1306Wire  display(0x3c, SDA, SCL);
 OLEDDisplayUi ui     ( &display );
+#endif
+
 
 /*
 D3 = configportal
@@ -121,7 +142,9 @@ struct ButtonData
     };
 
 void handleTap(Button2& btn) {
+    #ifdef OLED
     display.displayOn();
+    #endif
     // check for really long clicks
     ButtonData r;
     if (btn == button_1) {
@@ -143,14 +166,17 @@ void handleTap(Button2& btn) {
       data[4] = 255;
     }
 
-    
-    artnet.setArtDmxData(data, size);
-    artnet.streamArtDmxTo(target_ip, universe);
+    sender.dmx(data);
+    sender.send();
+    //artnet.setArtDmxData(data, size);
+    //artnet.streamArtDmxTo(target_ip, universe);
     delay_10s.restart();
 }
 
 void handleRelease(Button2& btn) {
+    #ifdef OLED
     display.displayOn();
+    #endif
     // check for really long clicks
     ButtonData r;
     if (btn == button_1) {
@@ -170,19 +196,25 @@ void handleRelease(Button2& btn) {
     } else if (btn == button_5) {
       Serial.println("5 released");
       data[4] = 0;
-    }    
-    artnet.setArtDmxData(data, size);
-    artnet.streamArtDmxTo(target_ip, universe);
+    }
+
+    sender.dmx(data);
+    sender.send();
+    //artnet.setArtDmxData(data, size);
+    //artnet.streamArtDmxTo(target_ip, universe);
     delay_10s.restart();
 }
 
+#ifdef OLED
 void msOverlay(OLEDDisplay *display, OLEDDisplayUiState* state) {
   a0value = analogRead(A0);
   voltage = a0value * 5.0/1023;
   display->setTextAlignment(TEXT_ALIGN_RIGHT);
   display->setFont(ArialMT_Plain_10);
   display->drawString(128, 0, "Q: " + String(wm.getRSSIasQuality(WiFi.RSSI())) + " / Bat: " + String(voltage) + "V / A0: " + String(a0value));
+  
 }
+
 
 void drawFrame3(OLEDDisplay *display, OLEDDisplayUiState* state, int16_t x, int16_t y) {
   // Text alignment demo
@@ -204,10 +236,13 @@ int frameCount = 1;
 
 OverlayCallback overlays[] = { msOverlay };
 int overlaysCount = 1;
+#endif
 
 void setup() {
     Serial.begin(115200);
     Serial.setDebugOutput(true);  
+    
+    #ifdef OLED
     ui.setTargetFPS(10);
     ui.setIndicatorPosition(BOTTOM);
 
@@ -221,7 +256,7 @@ void setup() {
     display.flipScreenVertically();
     display.drawXbm(0 + 34, 0 + 14, WiFi_Logo_width, WiFi_Logo_height, WiFi_Logo_bits);
     display.display();
-
+    #endif
     // WiFi stuff
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP  
     pinMode(TRIGGER_PIN, INPUT);
@@ -271,7 +306,7 @@ void setup() {
     wm.setClass("invert");
 
     //set static ip
-    // wm.setSTAStaticIPConfig(IPAddress(10,0,1,99), IPAddress(10,0,1,1), IPAddress(255,255,255,0)); // set static ip,gw,sn
+    wm.setSTAStaticIPConfig(ip, gateway, subnet); // set static ip,gw,sn
     wm.setShowStaticFields(true); // force show static ip fields
     wm.setConfigPortalTimeout(120); // auto close configportal after n seconds
     bool res;
@@ -279,26 +314,32 @@ void setup() {
 
     if(!res) {
       Serial.println("Failed to connect or hit timeout");
+      #ifdef OLED
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.drawString(64, 15, "Failed to connect or hit timeout");
       display.display();
+      #endif
+      // ESP.restart();
       delay(1000);
       // ESP.restart();
     } 
     else {
       //if you get here you have connected to the WiFi    
       Serial.println("connected...yeey :)");
+      #ifdef OLED
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.drawString(64, 15, "connected...yeey :)");
       display.display();
+      #endif
       delay(1000);
     }
 
     Serial.println(WiFi.localIP());
     ArduinoOTA.setPassword("geheimesPasswort");
-    ArduinoOTA.begin();  
+    ArduinoOTA.begin();
+    #ifdef OLED
     ArduinoOTA.onStart([]() {
       display.displayOn();
       display.clear();
@@ -307,12 +348,15 @@ void setup() {
       display.drawString(display.getWidth()/2, display.getHeight()/2 - 10, "OTA Update");
       display.display();
     });
+    #endif
 
+    #ifdef OLED
     ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
       display.displayOn();
       display.drawProgressBar(4, 32, 120, 8, progress / (total / 100) );
       display.display();
     });
+    
 
     ArduinoOTA.onEnd([]() {
       display.displayOn();
@@ -322,13 +366,18 @@ void setup() {
       display.drawString(display.getWidth()/2, display.getHeight()/2, "Restart");
       display.display();
     });
+    #endif
 
-
-    artnet.begin();
+    //setup sACN
+    generateUUID(cid, micros());
+    deviceCID(cid);
+    deviceName("Funkzuender");
+    sender.begin(ipUnicast,18, 100, false);
+    //artnet.begin();
     //button.setDebounceTime(100);
 
     // if Artnet packet comes to this universe, this function is called
-    artnet.subscribeArtDmxUniverse(universe, [&](const uint8_t *data, uint16_t size, const ArtDmxMetadata& metadata, const ArtNetRemoteInfo& remote) {
+    /*artnet.subscribeArtDmxUniverse(universe, [&](const uint8_t *data, uint16_t size, const ArtDmxMetadata& metadata, const ArtNetRemoteInfo& remote) {
         Serial.print("lambda : artnet data from ");
         Serial.print(remote.ip);
         Serial.print(":");
@@ -363,7 +412,7 @@ void setup() {
         Serial.print(size);
         Serial.println(")");
     });
-
+    */
     button_1.begin(BUTTON_PIN_1);
     button_1.setPressedHandler(handleTap);
     button_1.setReleasedHandler(handleRelease);
@@ -402,29 +451,35 @@ void checkButton(){
       
       // start portal w delay
       Serial.println("Starting config portal");
+      #ifdef OLED
       display.displayOn();
       display.clear();
       display.setTextAlignment(TEXT_ALIGN_CENTER);
       display.drawString(64, 15, "Starting config portal");
       display.display();
+      #endif
       delay(1000);
       wm.setConfigPortalTimeout(120);
       
       if (!wm.startConfigPortal("OnDemandAP","password")) {
         Serial.println("failed to connect or hit timeout");
+        #ifdef OLED
         display.clear();
         display.setTextAlignment(TEXT_ALIGN_CENTER);
         display.drawString(64, 15, "failed to connect or hit timeout");
         display.display();
+        #endif
         delay(3000);
         // ESP.restart();
       } else {
         //if you get here you have connected to the WiFi
         Serial.println("connected...yeey :)");
+        #ifdef OLED
         display.clear();
         display.setTextAlignment(TEXT_ALIGN_CENTER);
         display.drawString(64, 15, "connected...yeey :)");
         display.display();
+        #endif
       }
     }
   }
@@ -448,8 +503,10 @@ void loop() {
     if(wm_nonblocking) wm.process(); // avoid delays() in loop when non-blocking and other long running code  
     ArduinoOTA.handle();
     checkButton();
+    #ifdef OLED
     int remainingTimeBudget = ui.update();
-    artnet.parse();  // check if artnet packet has come and execute callback
+    #endif
+    //artnet.parse();  // check if artnet packet has come and execute callback
     button_1.loop();
     button_2.loop();
     button_3.loop();
@@ -457,13 +514,14 @@ void loop() {
     button_5.loop();
     //value = (millis() / 4) % 256;
     //memset(data, value, size);
-
+    #ifdef OLED
     if(delay_10s.isExpired())
     {
       display.displayOff();
     }
-
-    artnet.setArtDmxData(data, size);
-    artnet.streamArtDmxTo(target_ip, universe);  // automatically send set data in 40fps
+    #endif
+    sender.idle();
+    //artnet.setArtDmxData(data, size);
+    //artnet.streamArtDmxTo(target_ip, universe);  // automatically send set data in 40fps
     // artnet.streamArtDmxTo(target_ip, net, subnet, univ);  // or you can set net, subnet, and universe
 }
