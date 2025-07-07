@@ -51,9 +51,6 @@ const uint8_t WiFi_Logo_bits[] PROGMEM = {
 
 
 
-// Please include ArtnetWiFi.h to use Artnet on the platform
-// which can use both WiFi and Ethernet
-#include <ArtnetWiFi.h>
 
 #include "sACN.h"
 #include "IDTools.h"
